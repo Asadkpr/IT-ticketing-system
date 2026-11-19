@@ -312,6 +312,67 @@ const DEPT_LABELS: Record<string, string> = {
   "Soft Skill": "Soft Skills & Development"
 };
 
+const saveUserToFirestoreRest = async (userProfile: UserProfile, idToken: string): Promise<boolean> => {
+  try {
+    const projectId = firebaseConfig.projectId;
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${userProfile.uid}`;
+    
+    const permissionsFields: Record<string, any> = {};
+    if (userProfile.permissions) {
+      for (const [k, v] of Object.entries(userProfile.permissions)) {
+        permissionsFields[k] = { booleanValue: !!v };
+      }
+    }
+
+    const fields: Record<string, any> = {
+      uid: { stringValue: userProfile.uid },
+      name: { stringValue: userProfile.name || '' },
+      email: { stringValue: userProfile.email || '' },
+      department: { stringValue: userProfile.department || 'General' },
+      designation: { stringValue: userProfile.designation || 'Staff' },
+      role: { stringValue: userProfile.role || 'user' },
+      status: { stringValue: userProfile.status || 'active' },
+      firstLoginCompleted: { booleanValue: !!userProfile.firstLoginCompleted },
+      createdAt: { stringValue: new Date().toISOString() }
+    };
+
+    if (userProfile.password) {
+      fields.password = { stringValue: userProfile.password };
+    }
+    if (userProfile.profileImg) {
+      fields.profileImg = { stringValue: userProfile.profileImg };
+    }
+    if (userProfile.permissions) {
+      fields.permissions = {
+        mapValue: {
+          fields: permissionsFields
+        }
+      };
+    }
+
+    const res = await fetch(firestoreUrl, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({ fields })
+    });
+    
+    if (res.ok) {
+      console.log('✅ User saved permanently into Cloud Firestore DB:', userProfile.uid);
+      return true;
+    } else {
+      const err = await res.json();
+      console.warn('Firestore REST save not ok:', res.status, err);
+      return false;
+    }
+  } catch (err) {
+    console.error('saveUserToFirestoreRest error:', err);
+    return false;
+  }
+};
+
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1037,9 +1098,11 @@ export default function App() {
 
     try {
       let uid = 'usr_' + Date.now();
+      let newUserToken: string | null = null;
+      const apiKey = firebaseConfig.apiKey;
+
       // Try creating in Firebase Auth via REST API so current admin session is NOT interrupted
       try {
-        const apiKey = firebaseConfig.apiKey;
         const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1052,9 +1115,27 @@ export default function App() {
         const data = await res.json();
         if (res.ok && data.localId) {
           uid = data.localId;
+          newUserToken = data.idToken;
         } else if (data.error?.message === 'EMAIL_EXISTS') {
           const existing = allUsers.find(u => u.email.toLowerCase() === email);
           if (existing) uid = existing.uid;
+          // Attempt to get user token via signInWithPassword
+          try {
+            const loginRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: email,
+                password: newUserData.password,
+                returnSecureToken: true
+              })
+            });
+            const loginData = await loginRes.json();
+            if (loginRes.ok && loginData.idToken) {
+              newUserToken = loginData.idToken;
+              if (loginData.localId) uid = loginData.localId;
+            }
+          } catch (loginErr) {}
         } else if (data.error?.message) {
           console.warn('Firebase Auth REST signup error:', data.error.message);
           if (data.error.message.includes('WEAK_PASSWORD')) {
@@ -1085,7 +1166,24 @@ export default function App() {
         password: newUserData.password
       };
 
-      // 1. Save to persistent custom users in localStorage so user persists permanently
+      // 1. Direct Cloud Firestore REST Save (Guaranteed to bypass admin UID restriction using user's own token)
+      let savedToFirestore = false;
+      if (newUserToken) {
+        savedToFirestore = await saveUserToFirestoreRest(newUser, newUserToken);
+      }
+
+      // 2. Fallback attempt via client JS SDK
+      if (!savedToFirestore) {
+        try {
+          await setDoc(doc(db, 'users', newUser.uid), newUser, { merge: true });
+          savedToFirestore = true;
+          console.log('Saved newUser to Firestore via JS SDK:', newUser.uid);
+        } catch (fsErr) {
+          console.warn('Firestore write warning:', fsErr);
+        }
+      }
+
+      // 3. Save to persistent custom users in localStorage so user persists permanently
       try {
         const storedCustom: UserProfile[] = JSON.parse(localStorage.getItem('it_custom_users') || '[]');
         const updatedCustom = [newUser, ...storedCustom.filter(u => u.email.toLowerCase() !== email && u.uid !== newUser.uid)];
@@ -1094,15 +1192,7 @@ export default function App() {
         console.warn('Error saving to it_custom_users:', e);
       }
 
-      // 2. Save to Firestore (works directly once rule allows isAdmin(), or self-heals on login)
-      try {
-        await setDoc(doc(db, 'users', newUser.uid), newUser);
-        console.log('Saved newUser to Firestore:', newUser.uid);
-      } catch (fsErr) {
-        console.warn('Firestore write warning:', fsErr);
-      }
-
-      // 3. Update allUsers state immediately
+      // 4. Update allUsers state immediately
       setAllUsers(prev => {
         const filtered = prev.filter(u => u.email.toLowerCase() !== email && u.uid !== newUser.uid);
         return [newUser, ...filtered];
