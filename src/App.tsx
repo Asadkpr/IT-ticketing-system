@@ -494,6 +494,15 @@ export default function App() {
     }
   }, [notifications, user]);
 
+  useEffect(() => {
+    if (user) {
+      const myDept = (user.role === 'admin' || user.role === 'it_member') 
+        ? 'IT' 
+        : (normalizeDept(user.department) || user.department || 'IT');
+      setSelectedDepartment(myDept);
+    }
+  }, [user]);
+
   // Profile Edit State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profileFormData, setProfileFormData] = useState({ name: '', department: '', designation: '', profileImg: '' });
@@ -2813,17 +2822,13 @@ export default function App() {
                     )}
                   </button>
                   )}
-                  {/* Department Groups Section */}
+                  {/* Department Group Section */}
                   {(() => {
-                    const isAdmin = user?.role === 'admin';
-                    const userDept = normalizeDept(user?.department);
-                    const allAvailableDepts = Array.from(new Set([
-                      ...DEPARTMENTS,
-                      ...allUsers.map(u => normalizeDept(u.department)).filter(Boolean)
-                    ]));
-                    const visibleDepartments = isAdmin
-                      ? allAvailableDepts 
-                      : (userDept && userDept !== 'General' ? [userDept] : (user?.department ? [user.department] : []));
+                    const myDept = (user?.role === 'admin' || user?.role === 'it_member') 
+                      ? 'IT' 
+                      : (normalizeDept(user?.department) || user?.department || 'General');
+
+                    const visibleDepartments = (myDept && myDept !== 'General') ? [myDept] : ['IT'];
 
                     if (visibleDepartments.length === 0) return null;
 
@@ -2831,13 +2836,8 @@ export default function App() {
                       <>
                         <div className="pt-3 pb-1 px-2 flex items-center justify-between">
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                            {isAdmin ? 'Department Groups' : 'My Department Group'}
+                            My Department Group
                           </p>
-                          {isAdmin && (
-                            <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded font-bold">
-                              {visibleDepartments.length}
-                            </span>
-                          )}
                         </div>
 
                         {visibleDepartments
@@ -2869,19 +2869,17 @@ export default function App() {
                                   "w-8 h-8 rounded-full flex items-center justify-center font-bold text-[10px]", 
                                   isSelected ? "bg-emerald-500 text-white" : "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
                                 )}>
-                                  {dept.slice(0, 3).toUpperCase()}
+                                  {(DEPT_LABELS[dept] || dept).slice(0, 3).toUpperCase()}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5">
                                     <p className="text-xs font-bold truncate">{DEPT_LABELS[dept] || dept}</p>
-                                    {normalizeDept(user?.department) === dept && (
-                                      <span className={cn(
-                                        "text-[8px] px-1.5 py-0.2 rounded font-semibold whitespace-nowrap", 
-                                        isSelected ? "bg-emerald-700 text-emerald-100" : "bg-emerald-50 text-emerald-600 dark:bg-slate-700 dark:text-emerald-400"
-                                      )}>
-                                        My Dept
-                                      </span>
-                                    )}
+                                    <span className={cn(
+                                      "text-[8px] px-1.5 py-0.2 rounded font-semibold whitespace-nowrap", 
+                                      isSelected ? "bg-emerald-700 text-emerald-100" : "bg-emerald-50 text-emerald-600 dark:bg-slate-700 dark:text-emerald-400"
+                                    )}>
+                                      My Dept
+                                    </span>
                                   </div>
                                   <p className={cn("text-[10px] truncate", isSelected ? "text-emerald-100" : "text-slate-400")}>
                                     {deptMembersCount > 0 ? `${deptMembersCount} members` : 'Department Group'}
