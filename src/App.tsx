@@ -312,6 +312,21 @@ const DEPT_LABELS: Record<string, string> = {
   "Soft Skill": "Soft Skills & Development"
 };
 
+const formatChatTime = (isoString?: string): string => {
+  if (!isoString) return '';
+  try {
+    const d = new Date(isoString);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    if (isToday) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  } catch (e) {
+    return '';
+  }
+};
+
 const saveUserToFirestoreRest = async (userProfile: UserProfile, idToken: string): Promise<boolean> => {
   try {
     const projectId = firebaseConfig.projectId;
@@ -2923,13 +2938,26 @@ export default function App() {
                   {/* IT Help Requesters List for IT Members */}
                   {user.role !== 'user' && chatMode === 'it-help' && (
                     <div className="ml-4 mt-1 space-y-1 border-l-2 border-amber-100 pl-2 py-1">
-                      {allUsers.filter(u => {
-                        const hasMessagedIT = allMessages.some(m => m.receiverId === 'it-help-group' && m.senderId === u.uid);
-                        return hasMessagedIT;
-                      }).length === 0 ? (
-                        <p className="text-[10px] text-slate-400 italic px-2">No requests yet</p>
-                      ) : (
-                        allUsers.filter(u => allMessages.some(m => m.receiverId === 'it-help-group' && m.senderId === u.uid)).map(requester => (
+                      {(() => {
+                        const requestersWithMeta = allUsers
+                          .filter(u => allMessages.some(m => m.receiverId === 'it-help-group' && m.senderId === u.uid))
+                          .map(u => {
+                            const userMsgs = allMessages.filter(m => m.receiverId === 'it-help-group' && m.senderId === u.uid);
+                            const lastTime = userMsgs.length > 0 ? new Date(userMsgs[userMsgs.length - 1].createdAt).getTime() : 0;
+                            const unreadCount = userMsgs.filter(m => !m.seenBy.includes(user?.uid || '')).length;
+                            return { user: u, lastTime, unreadCount };
+                          })
+                          .sort((a, b) => {
+                            if (a.unreadCount > 0 && b.unreadCount === 0) return -1;
+                            if (b.unreadCount > 0 && a.unreadCount === 0) return 1;
+                            return b.lastTime - a.lastTime;
+                          });
+
+                        if (requestersWithMeta.length === 0) {
+                          return <p className="text-[10px] text-slate-400 italic px-2">No requests yet</p>;
+                        }
+
+                        return requestersWithMeta.map(({ user: requester, unreadCount }) => (
                           <button 
                             key={requester.uid}
                             onClick={() => {
@@ -2945,47 +2973,137 @@ export default function App() {
                               {requester.name.charAt(0)}
                             </div>
                             <span className="text-[10px] truncate flex-1">{requester.name}</span>
-                            {allMessages.filter(m => m.receiverId === 'it-help-group' && m.senderId === requester.uid && !m.seenBy.includes(user?.uid || '')).length > 0 && (
+                            {unreadCount > 0 && (
                               <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>
                             )}
                           </button>
-                        ))
-                      )}
+                        ));
+                      })()}
                     </div>
                   )}
 
-                  <div className="pt-4 pb-2 px-2">
+                  <div className="pt-4 pb-2 px-2 flex items-center justify-between">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Direct Messages</p>
+                    <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded font-bold">
+                      {allUsers.filter(u => u.uid !== user?.uid).length}
+                    </span>
                   </div>
 
-                  {allUsers
-                    .filter(u => u.uid !== user?.uid)
-                    .filter(u => u.name.toLowerCase().includes(chatUserSearch.toLowerCase()) || u.role.toLowerCase().includes(chatUserSearch.toLowerCase()) || u.department.toLowerCase().includes(chatUserSearch.toLowerCase()))
-                    .map(u => (
-                    <button 
-                      key={u.uid}
-                      onClick={() => {
-                        setChatMode('private');
-                        setSelectedChatUser(u);
-                        setIsMobileChatListVisible(false);
-                      }}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left relative",
-                        (chatMode === 'private' && selectedChatUser?.uid === u.uid) ? "bg-blue-600 text-white shadow-md shadow-blue-100" : "text-slate-600 dark:text-slate-300 hover:bg-white dark:bg-slate-800 hover:shadow-sm"
-                      )}
-                    >
-                      <div className={cn("w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs", (chatMode === 'private' && selectedChatUser?.uid === u.uid) ? "bg-blue-500" : "bg-slate-200 text-slate-600 dark:text-slate-300")}>
-                        {u.name.charAt(0)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold truncate">{u.name}</p>
-                        <p className={cn("text-[10px] truncate", (chatMode === 'private' && selectedChatUser?.uid === u.uid) ? "text-blue-100" : "text-slate-400")}>{u.role.replace('_', ' ')}</p>
-                      </div>
-                      {allMessages.filter(m => m.senderId === u.uid && m.receiverId === user?.uid && !m.seenBy.includes(user?.uid || '')).length > 0 && (
-                        <div className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full"></div>
-                      )}
-                    </button>
-                  ))}
+                  {(() => {
+                    const otherUsers = allUsers.filter(u => u.uid !== user?.uid);
+
+                    const usersWithMeta = otherUsers.map(u => {
+                      let lastMsg: ChatMessage | null = null;
+                      let lastTime = 0;
+                      let unreadCount = 0;
+
+                      for (let i = allMessages.length - 1; i >= 0; i--) {
+                        const m = allMessages[i];
+                        const isDirect = (m.senderId === u.uid && m.receiverId === user?.uid) ||
+                                         (m.senderId === user?.uid && m.receiverId === u.uid);
+                        if (isDirect) {
+                          if (!lastMsg) {
+                            lastMsg = m;
+                            lastTime = new Date(m.createdAt).getTime() || 0;
+                          }
+                          if (m.senderId === u.uid && m.receiverId === user?.uid && !m.seenBy.includes(user?.uid || '')) {
+                            unreadCount++;
+                          }
+                        }
+                      }
+
+                      return { user: u, lastMsg, lastTime, unreadCount };
+                    });
+
+                    // Sort: Unread messages first -> Most recent message time (newest on top) -> Alphabetical
+                    usersWithMeta.sort((a, b) => {
+                      if (a.unreadCount > 0 && b.unreadCount === 0) return -1;
+                      if (b.unreadCount > 0 && a.unreadCount === 0) return 1;
+                      if (a.lastTime !== b.lastTime) return b.lastTime - a.lastTime;
+                      return a.user.name.localeCompare(b.user.name);
+                    });
+
+                    const filteredSorted = usersWithMeta.filter(({ user: u }) => 
+                      !chatUserSearch ||
+                      (u.name || '').toLowerCase().includes(chatUserSearch.toLowerCase()) || 
+                      (u.role || '').toLowerCase().includes(chatUserSearch.toLowerCase()) || 
+                      (u.department || '').toLowerCase().includes(chatUserSearch.toLowerCase())
+                    );
+
+                    return filteredSorted.map(({ user: u, lastMsg, unreadCount }) => {
+                      const isSelected = chatMode === 'private' && selectedChatUser?.uid === u.uid;
+                      const timeStr = lastMsg ? formatChatTime(lastMsg.createdAt) : '';
+
+                      return (
+                        <button 
+                          key={u.uid}
+                          onClick={() => {
+                            setChatMode('private');
+                            setSelectedChatUser(u);
+                            setIsMobileChatListVisible(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left relative group",
+                            isSelected 
+                              ? "bg-blue-600 text-white shadow-md shadow-blue-100" 
+                              : unreadCount > 0 
+                                ? "bg-blue-50/80 dark:bg-blue-950/40 text-slate-900 dark:text-white border border-blue-200 dark:border-blue-900" 
+                                : "text-slate-600 dark:text-slate-300 hover:bg-white dark:bg-slate-800 hover:shadow-sm"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs relative shrink-0", 
+                            isSelected 
+                              ? "bg-blue-500 text-white" 
+                              : unreadCount > 0 
+                                ? "bg-blue-600 text-white" 
+                                : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                          )}>
+                            {u.name.charAt(0)}
+                            {unreadCount > 0 && !isSelected && (
+                              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white dark:ring-slate-900"></span>
+                            )}
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <p className={cn("text-xs font-bold truncate", unreadCount > 0 && !isSelected ? "text-blue-900 dark:text-blue-300 font-extrabold" : "")}>
+                                {u.name}
+                              </p>
+                              {timeStr && (
+                                <span className={cn(
+                                  "text-[9px] shrink-0", 
+                                  isSelected ? "text-blue-200" : unreadCount > 0 ? "text-blue-600 font-semibold" : "text-slate-400"
+                                )}>
+                                  {timeStr}
+                                </span>
+                              )}
+                            </div>
+                            
+                            <div className="flex items-center justify-between gap-1 mt-0.5">
+                              <p className={cn(
+                                "text-[10px] truncate flex-1", 
+                                isSelected ? "text-blue-100" : unreadCount > 0 ? "text-slate-800 dark:text-slate-200 font-medium" : "text-slate-400"
+                              )}>
+                                {lastMsg 
+                                  ? (lastMsg.senderId === user?.uid ? `You: ${lastMsg.text}` : lastMsg.text) 
+                                  : (DEPT_LABELS[u.department] || u.department || u.role.replace('_', ' '))}
+                              </p>
+                              
+                              {unreadCount > 0 && (
+                                <span className={cn(
+                                  "shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold",
+                                  isSelected ? "bg-white text-blue-600" : "bg-rose-500 text-white shadow-sm"
+                                )}>
+                                  {unreadCount}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 
