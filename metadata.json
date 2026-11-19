@@ -1,0 +1,5 @@
+{
+  "name": "IT Ticketing System",
+  "description": "A comprehensive IT ticketing system with Microsoft SSO, ticket management, and admin notifications.",
+  "requestFramePermissions": []
+}

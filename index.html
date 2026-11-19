@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IAC Ticketing System</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      setInterval(() => {
+        document.querySelectorAll('a, div, iframe, svg, img').forEach(el => {
+          try {
+            if (el.href && el.href.toLowerCase().includes('netlify')) { el.style.setProperty('display', 'none', 'important'); el.style.opacity = '0'; }
+            if (el.title && el.title.toLowerCase().includes('netlify')) { el.style.setProperty('display', 'none', 'important'); }
+            if (el.id && el.id.toLowerCase().includes('netlify')) { el.style.setProperty('display', 'none', 'important'); }
+            if (typeof el.className === 'string' && el.className.toLowerCase().includes('netlify')) { el.style.setProperty('display', 'none', 'important'); }
+            if (el.textContent && el.textContent.toLowerCase().includes('powered by netlify')) { el.style.setProperty('display', 'none', 'important'); }
+          } catch(e) {}
+        });
+      }, 1000);
+    </script>
+  </body>
+</html>

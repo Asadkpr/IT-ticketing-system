@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user information and permissions",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "department": { "type": "string" },
+        "designation": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "it_member", "user"] },
+        "password": { "type": "string" },
+        "mustChangePassword": { "type": "boolean" },
+        "permissions": { "$ref": "UserPermissions" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "UserPermissions": {
+      "title": "User Permissions",
+      "description": "Granular permissions for a user",
+      "type": "object",
+      "properties": {
+        "canViewAllTickets": { "type": "boolean" },
+        "canAssignTickets": { "type": "boolean" },
+        "canCloseTickets": { "type": "boolean" },
+        "canViewReports": { "type": "boolean" },
+        "canManageUsers": { "type": "boolean" }
+      }
+    },
+    "SupportTicket": {
+      "title": "Support Ticket",
+      "description": "IT support request ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "in-progress", "resolved", "closed"] },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "createdBy": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "department": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "assignedToName": { "type": "string" },
+        "resolvedBy": { "type": "string" },
+        "resolvedByName": { "type": "string" },
+        "resolvedAt": { "type": "string" },
+        "closedBy": { "type": "string" },
+        "closedByName": { "type": "string" },
+        "closedAt": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "feedback": { "type": "string" },
+        "attachment": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "data": { "type": "string" }
+          }
+        }
+      },
+      "required": ["title", "category", "description", "status", "priority", "createdBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "UserProfile",
+      "description": "Collection of user profiles"
+    },
+    "tickets": {
+      "schema": "SupportTicket",
+      "description": "Collection of support tickets"
+    }
+  }
+}
